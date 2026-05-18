@@ -71,10 +71,10 @@ export default function LiveMap() {
     iconAnchor: [12, 12],
   });
 
-  // Custom icon indicating an active threat (red + pulsing)
+  // Custom icon indicating an active threat (red + pulsing/blinking)
   const alertIcon = L.divIcon({
     className: 'custom-alert-icon',
-    html: `<div style="background-color: #ef4444; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 0 15px rgba(239, 68, 68, 0.8); animation: pulse 1.5s infinite;"></div>`,
+    html: `<div style="background-color: #ef4444; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; animation: blink-node 0.8s infinite alternate, pulse-shadow 1.5s infinite;"></div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
   });
@@ -105,7 +105,8 @@ export default function LiveMap() {
                   color: isThreatActive ? '#ef4444' : '#10b981',
                   fillColor: isThreatActive ? '#ef4444' : '#10b981',
                   fillOpacity: isThreatActive ? 0.4 : 0.15,
-                  weight: 2
+                  weight: 2,
+                  className: isThreatActive ? 'blink-circle' : ''
                 }}
               />
               <Marker 
@@ -158,10 +159,21 @@ export default function LiveMap() {
       </div>
       
       <style>{`
-        @keyframes pulse {
+        @keyframes pulse-shadow {
           0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-          70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+          70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
           100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        @keyframes blink-node {
+          0% { transform: scale(1); opacity: 1; background-color: #ef4444; }
+          100% { transform: scale(1.3); opacity: 0.7; background-color: #fca5a5; }
+        }
+        .blink-circle {
+          animation: blink-circle-anim 0.8s infinite alternate;
+        }
+        @keyframes blink-circle-anim {
+          0% { stroke-opacity: 1; fill-opacity: 0.4; stroke: #ef4444; }
+          100% { stroke-opacity: 0.3; fill-opacity: 0.1; stroke: #f87171; }
         }
       `}</style>
     </div>

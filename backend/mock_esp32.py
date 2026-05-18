@@ -8,9 +8,9 @@ URL = "http://localhost:8000/api/telemetry"
 
 # Valid Node UUIDs from seeded public schema
 NODE_IDS = [
-    '30505ff1-e0dd-40a9-8d1c-21a3816197b1',
-    '260c67a3-8cce-4309-89d4-2ad4251b4cca',
-    '980bc353-9ea5-4c2a-8260-f711e2a4e7a3'
+    'bbcee330-220f-4668-8a96-ab3effa25fc3',  # Daintree Canopy Crane (Tower A)
+    '5e528fb4-dff5-46c1-ab98-e866a17ec442',  # Daintree Discovery Centre (Tower B)
+    '823d3432-67f5-4c8b-9be5-afc985fe947b'   # Thornton Peak North Ranger Post
 ]
 
 # Threat types supported by ESP32 microcontrollers acoustic classification model
