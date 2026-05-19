@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import LiveMap from './components/LiveMap';
+import AdminMode from './components/AdminMode';
 import { Activity, ShieldAlert, Settings } from 'lucide-react';
 import './App.css';
 
@@ -9,7 +10,7 @@ function App() {
   return (
     <div className="flex flex-col w-full h-screen bg-gray-950 text-slate-100 overflow-hidden">
       {/* Top Navigation Bar */}
-      <header className="flex items-center justify-between px-6 py-4 bg-gray-900 border-b border-gray-800 shadow-md z-10 relative">
+      <header className="flex items-center justify-between px-6 py-4 bg-gray-900 border-b border-gray-800 shadow-md z-[2000] relative">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-emerald-500/20 rounded-lg border border-emerald-500/30">
             <ShieldAlert className="w-6 h-6 text-emerald-400" />
@@ -48,15 +49,7 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 relative">
         {activeTab === 'map' && <LiveMap />}
-        {activeTab === 'admin' && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center space-y-4">
-              <Settings className="w-16 h-16 text-gray-700 mx-auto" />
-              <h2 className="text-2xl font-bold text-gray-500">Admin Mode Dashboard</h2>
-              <p className="text-gray-600">Configuration and threat management interface coming soon.</p>
-            </div>
-          </div>
-        )}
+        {activeTab === 'admin' && <AdminMode />}
       </main>
     </div>
   );

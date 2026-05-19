@@ -10,6 +10,7 @@ interface NodeData {
 }
 
 interface AlertData {
+  id?: string;
   node_id: string;
   threat_type: string;
   confidence_score: number;
@@ -19,6 +20,7 @@ export default function LiveMap() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [activeThreatNodes, setActiveThreatNodes] = useState<Set<string>>(new Set());
+  const [activeAlert, setActiveAlert] = useState<AlertData | null>(null);
 
   useEffect(() => {
     // Fetch initial nodes
@@ -36,6 +38,7 @@ export default function LiveMap() {
         if (payload.threat_type && payload.node_id) {
           // Add new alert to the UI, keep only the latest 5
           setAlerts(prev => [payload, ...prev].slice(0, 5));
+          setActiveAlert(payload);
           
           // Add node to active threats list
           setActiveThreatNodes(prev => {
@@ -43,15 +46,6 @@ export default function LiveMap() {
             newSet.add(payload.node_id);
             return newSet;
           });
-
-          // Remove the red highlight after 5 seconds
-          setTimeout(() => {
-            setActiveThreatNodes(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(payload.node_id);
-              return newSet;
-            });
-          }, 5000);
         }
       } catch (err) {
         console.error("Error parsing websocket message:", err);
@@ -71,6 +65,32 @@ export default function LiveMap() {
     iconAnchor: [12, 12],
   });
 
+  const handleAction = async (actionType: string) => {
+    if (!activeAlert || !activeAlert.id) return;
+    try {
+      await fetch(`http://localhost:8000/api/alerts/${activeAlert.id}/action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action_type: actionType,
+          user_name: 'Admin Ranger'
+        })
+      });
+      
+      // Clear alert and map pin
+      setActiveThreatNodes(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(activeAlert.node_id);
+        return newSet;
+      });
+      setActiveAlert(null);
+    } catch (err) {
+      console.error("Failed to perform action", err);
+    }
+  };
+
   // Custom icon indicating an active threat (red + pulsing/blinking)
   const alertIcon = L.divIcon({
     className: 'custom-alert-icon',
@@ -80,7 +100,7 @@ export default function LiveMap() {
   });
 
   return (
-    <div className="relative w-full h-screen bg-gray-950 text-slate-100">
+    <div className="relative w-full h-full bg-gray-950 text-slate-100">
       {/* Map Container */}
       <MapContainer 
         center={[18.4647, 73.8744]} 
@@ -123,9 +143,54 @@ export default function LiveMap() {
         })}
       </MapContainer>
 
+      {/* Action Panel Overlay */}
+      {activeAlert && (
+        <div className="absolute top-4 right-4 z-[1001] w-96 backdrop-blur-xl bg-gray-900/95 border border-slate-700 shadow-2xl rounded-2xl p-6 text-white transform transition-all">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex h-4 w-4 relative">
+              <span className="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500"></span>
+            </div>
+            <h2 className="text-xl font-bold tracking-wider text-red-400 uppercase">Action Required</h2>
+          </div>
+          
+          <div className="space-y-4 mb-8 bg-gray-800/50 p-4 rounded-xl border border-gray-700">
+            <div>
+              <p className="text-sm text-gray-400 uppercase tracking-wider">Threat Type</p>
+              <p className="text-2xl font-semibold text-white">{activeAlert.threat_type}</p>
+            </div>
+            <div className="flex justify-between items-center border-t border-gray-700 pt-4">
+              <div>
+                <p className="text-sm text-gray-400 uppercase tracking-wider">Node ID</p>
+                <p className="text-sm font-mono text-gray-200">{activeAlert.node_id.substring(0, 12)}...</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-gray-400 uppercase tracking-wider">Confidence</p>
+                <p className="text-lg font-mono text-emerald-400">{(activeAlert.confidence_score * 100).toFixed(1)}%</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex flex-col gap-3">
+            <button 
+              onClick={() => handleAction('Escalated')}
+              className="w-full py-3 px-4 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg shadow-lg shadow-red-900/50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:ring-offset-gray-900"
+            >
+              Escalate to Field Visit
+            </button>
+            <button 
+              onClick={() => handleAction('False Alarm')}
+              className="w-full py-3 px-4 bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-gray-900"
+            >
+              Mark False Alarm
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Real-time Notifications Overlay */}
-      <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-3 w-80 pointer-events-none">
-        {alerts.map((alert, idx) => (
+      <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-3 w-80 pointer-events-none mt-0">
+        {!activeAlert && alerts.map((alert, idx) => (
           <div 
             key={`${alert.node_id}-${idx}`}
             className="pointer-events-auto backdrop-blur-xl bg-gray-900/80 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)] rounded-xl p-4 text-white transition-all duration-300"

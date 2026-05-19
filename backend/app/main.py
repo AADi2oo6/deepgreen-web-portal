@@ -74,6 +74,17 @@ class TelemetryPayload(BaseModel):
 class AlertWorkflowUpdate(BaseModel):
     workflow_status: str = Field(..., min_length=1, description="E.g., investigating, resolved")
 
+class AlertActionPayload(BaseModel):
+    action_type: str = Field(..., min_length=1, description="E.g., Escalated, False Alarm")
+    user_name: str = Field(..., min_length=1, description="E.g., Officer Smith")
+
+class NodePayload(BaseModel):
+    id: UUID
+    name: str = Field(default="New Node", description="Name of the node")
+    latitude: float
+    longitude: float
+    monitoring_radius_meters: float
+
 # --- Routes and Endpoints ---
 @app.get("/api/nodes")
 async def get_nodes():
@@ -85,6 +96,29 @@ async def get_nodes():
         return res.data
     except Exception as e:
         logger.error(f"Failed to fetch nodes: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@app.post("/api/nodes")
+async def create_node(payload: NodePayload):
+    """
+    Create a new monitoring node.
+    """
+    try:
+        node_data = {
+            "id": str(payload.id),
+            "name": payload.name,
+            "latitude": payload.latitude,
+            "longitude": payload.longitude,
+            "monitoring_radius_meters": payload.monitoring_radius_meters
+        }
+        res = supabase.table("nodes").insert(node_data).execute()
+        if res.data:
+            return res.data[0]
+        raise HTTPException(status_code=500, detail="Failed to create node")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create node: {e}")
         raise HTTPException(status_code=500, detail="Database connection error")
 
 @app.get("/api/alerts")
@@ -125,6 +159,40 @@ async def update_alert_status(alert_id: UUID, payload: AlertWorkflowUpdate):
         raise
     except Exception as e:
         logger.error(f"Failed to update alert status: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@app.post("/api/alerts/{alert_id}/action")
+async def process_alert_action(alert_id: UUID, payload: AlertActionPayload):
+    """
+    Process an action on an alert (e.g., Escalate, Mark as False Alarm) and log the audit trail.
+    """
+    try:
+        workflow_status = payload.action_type.lower()
+        res = supabase.table("alerts").update({"workflow_status": workflow_status}).eq("id", str(alert_id)).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        
+        updated_alert = res.data[0]
+        
+        audit_data = {
+            "action": f"Alert {payload.action_type}",
+            "performed_by": payload.user_name,
+            "details": {"alert_id": str(alert_id), "action": payload.action_type}
+        }
+        supabase.table("audit_logs").insert(audit_data).execute()
+        
+        update_event = {
+            "type": "status_update",
+            "alert_id": str(alert_id),
+            "workflow_status": workflow_status
+        }
+        await manager.broadcast(update_event)
+        
+        return {"status": "success", "alert": updated_alert}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to process alert action: {e}")
         raise HTTPException(status_code=500, detail="Database connection error")
 
 @app.get("/")
