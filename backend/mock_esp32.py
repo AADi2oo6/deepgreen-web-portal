@@ -2,6 +2,7 @@ import requests
 import random
 import time
 import sys
+import uuid  # <-- Added UUID library
 
 # Backend URL for Telemetry endpoint
 URL = "http://localhost:8000/api/telemetry"
@@ -10,6 +11,7 @@ URL = "http://localhost:8000/api/telemetry"
 NODE_IDS = [
     'bbcee330-220f-4668-8a96-ab3effa25fc3',  # Daintree Canopy Crane (Tower A)
     '5e528fb4-dff5-46c1-ab98-e866a17ec442',  # Daintree Discovery Centre (Tower B)
+    '717630eb-2fdc-44c1-b747-805004f90d90',
     '823d3432-67f5-4c8b-9be5-afc985fe947b'   # Thornton Peak North Ranger Post
 ]
 
@@ -43,14 +45,19 @@ def main():
             threat = random.choice(THREAT_TYPES)
             # Generate random confidence score between 0.85 and 0.99
             confidence = round(random.uniform(0.85, 0.99), 4)
+            
+            # Generate a unique dummy alert ID so the React frontend can track it
+            alert_id = str(uuid.uuid4())
 
             payload = {
+                "alert_id": alert_id,  # <-- Added to payload
                 "node_id": node_id,
                 "threat_type": threat,
                 "confidence_score": confidence
             }
 
             print(f"\n[ESP32 -> Server] Firing simulated acoustic threat event...")
+            print(f"  - Alert ID:     {alert_id}")
             print(f"  - Node ID:      {node_id}")
             print(f"  - Sound Event:  {threat}")
             print(f"  - Confidence:   {confidence:.2%}")
