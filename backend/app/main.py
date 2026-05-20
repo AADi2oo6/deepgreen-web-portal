@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.logging import logger
 from app.api.endpoints import router as api_router
+from app.api.auth import router as auth_router
 
 app = FastAPI(
     title="DeepGreen Web Portal Backend",
@@ -20,7 +21,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API Router
+# Include API Routers
+app.include_router(auth_router)
 app.include_router(api_router)
 
 @app.get("/")

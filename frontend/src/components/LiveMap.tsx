@@ -29,15 +29,21 @@ export default function LiveMap() {
   useEffect(() => {
     // Fetch initial nodes
     fetch('http://localhost:8000/api/nodes')
-      .then(res => res.json())
-      .then(data => setNodes(data))
-      .catch(err => console.error("Error fetching nodes:", err));
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setNodes(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error("Error fetching nodes:", err);
+        setNodes([]);
+      });
 
     // Fetch dynamic forest zones from database
     fetch('http://localhost:8000/api/forest-zones')
-      .then(res => res.json())
-      .then(data => setForestZones(data))
-      .catch(err => console.error("Error fetching forest zones:", err));
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setForestZones(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error("Error fetching forest zones:", err);
+        setForestZones([]);
+      });
 
     // Connect WebSocket for real-time telemetry alerts
     const ws = new WebSocket('ws://localhost:8000/ws');

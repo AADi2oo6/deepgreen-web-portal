@@ -129,16 +129,22 @@ export default function AdminMode() {
 
   const fetchNodes = () => {
     fetch('http://localhost:8000/api/nodes')
-      .then(res => res.json())
-      .then(data => setNodes(data))
-      .catch(err => console.error("Error fetching nodes:", err));
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setNodes(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error("Error fetching nodes:", err);
+        setNodes([]);
+      });
   };
 
   const fetchForestZones = () => {
     fetch('http://localhost:8000/api/forest-zones')
-      .then(res => res.json())
-      .then(data => setForestZones(data))
-      .catch(err => console.error("Error fetching forest zones:", err));
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setForestZones(Array.isArray(data) ? data : []))
+      .catch(err => {
+        console.error("Error fetching forest zones:", err);
+        setForestZones([]);
+      });
   };
 
   useEffect(() => {
