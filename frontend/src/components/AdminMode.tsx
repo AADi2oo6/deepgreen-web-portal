@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
 import { v4 as uuidv4 } from 'uuid';
 import { calculatePolygonArea, formatArea } from '../utils/geoUtils';
+import MapSearch from './MapSearch';
 import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import { 
@@ -203,6 +204,35 @@ export default function AdminMode() {
     } catch (err) {
       console.error("Error deleting node:", err);
       alert("Error deleting node.");
+    }
+  };
+
+  const handleNodeDragEnd = async (nodeId: string, lat: number, lng: number) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/nodes/${nodeId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          latitude: lat,
+          longitude: lng
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update node coordinates');
+      }
+
+      // Update local state coordinates
+      setNodes(prev => prev.map(node => 
+        node.id === nodeId ? { ...node, latitude: lat, longitude: lng } : node
+      ));
+    } catch (err: any) {
+      console.error("Error dragging node:", err);
+      alert('Error updating node location: ' + err.message);
+      // Reset position from backend
+      fetchNodes();
     }
   };
 
@@ -721,6 +751,8 @@ export default function AdminMode() {
           </LayersControl.BaseLayer>
         </LayersControl>
 
+        <MapSearch />
+
         {/* Map Click Listener for Deploy Node */}
         <MapClickHandler onMapClick={handleMapClick} active={adminMode === 'node'} />
 
@@ -776,6 +808,14 @@ export default function AdminMode() {
               position={[node.latitude, node.longitude]}
               icon={customIcon}
               interactive={adminMode === 'inspect'}
+              draggable={adminMode === 'inspect'}
+              eventHandlers={{
+                dragend: (e) => {
+                  const marker = e.target;
+                  const position = marker.getLatLng();
+                  handleNodeDragEnd(node.id, position.lat, position.lng);
+                }
+              }}
             >
               <Popup className="text-gray-900 font-sans">
                 <strong className="block text-xs font-bold text-cyan-800">{node.name || `Node ${node.id.substring(0,8)}`}</strong>

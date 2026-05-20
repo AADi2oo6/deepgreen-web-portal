@@ -9,6 +9,7 @@ from app.api.schemas import (
     AlertWorkflowUpdate,
     AlertActionPayload,
     NodePayload,
+    NodeUpdatePayload,
     ForestZoneCreate,
     ForestZoneResponse
 )
@@ -243,6 +244,24 @@ async def delete_node(node_id: UUID):
         raise HTTPException(status_code=404, detail="Node not found")
     except Exception as e:
         logger.error(f"Failed to delete node {node_id}: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@router.put("/api/nodes/{node_id}")
+async def update_node_coordinates(node_id: UUID, payload: NodeUpdatePayload):
+    """
+    Update a monitoring node's latitude and longitude coordinates.
+    """
+    try:
+        res = supabase.table("nodes").update({
+            "latitude": payload.latitude,
+            "longitude": payload.longitude
+        }).eq("id", str(node_id)).execute()
+        
+        if res.data:
+            return res.data[0]
+        raise HTTPException(status_code=404, detail="Node not found")
+    except Exception as e:
+        logger.error(f"Failed to update node coordinates {node_id}: {e}")
         raise HTTPException(status_code=500, detail="Database connection error")
 
 @router.delete("/api/forest-zones/{zone_id}")

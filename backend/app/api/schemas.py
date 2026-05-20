@@ -21,6 +21,10 @@ class NodePayload(BaseModel):
     longitude: float
     monitoring_radius_meters: float
 
+class NodeUpdatePayload(BaseModel):
+    latitude: float
+    longitude: float
+
 from typing import Dict, Any
 
 class ForestZoneCreate(BaseModel):

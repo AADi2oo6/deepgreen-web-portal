@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Circle, Popup, GeoJSON, LayersControl, Tooltip } from 'react-leaflet';
+import MapSearch from './MapSearch';
 import L from 'leaflet';
 import forestBoundary from '../assets/forestBoundary.json';
 import { calculatePolygonArea, formatArea } from '../utils/geoUtils';
@@ -144,6 +145,8 @@ export default function LiveMap() {
             />
           </LayersControl.BaseLayer>
         </LayersControl>
+        
+        <MapSearch />
         
         <GeoJSON
           data={forestBoundary as any}
