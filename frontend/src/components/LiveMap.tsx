@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Popup, GeoJSON, LayersControl } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, Popup, GeoJSON, LayersControl, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import forestBoundary from '../assets/forestBoundary.json';
+import { calculatePolygonArea, formatArea } from '../utils/geoUtils';
 
 
 interface NodeData {
@@ -69,7 +70,7 @@ export default function LiveMap() {
   // Custom icon for a normal monitoring node
   const customIcon = L.divIcon({
     className: 'custom-node-icon',
-    html: `<div style="background-color: #10b981; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);"></div>`,
+    html: `<div style="background-color: #06b6d4; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);"></div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
   });
@@ -143,9 +144,17 @@ export default function LiveMap() {
           style={{
             color: '#22c55e',
             fillColor: '#22c55e',
-            fillOpacity: 0.2
+            fillOpacity: 0.08,
+            weight: 2
           }}
-        />
+        >
+          <Tooltip sticky direction="top">
+            <div className="text-gray-900 font-sans p-1">
+              <strong className="block text-xs font-bold text-emerald-800">Pune Forest Protected Area</strong>
+              <span className="text-[10px] text-gray-500 font-medium block mt-0.5">Area Covered: {formatArea(calculatePolygonArea(forestBoundary))}</span>
+            </div>
+          </Tooltip>
+        </GeoJSON>
 
         {/* Render dynamic forest zones from database */}
         {forestZones.map(zone => (
@@ -155,10 +164,17 @@ export default function LiveMap() {
             style={{
               color: '#22c55e',
               fillColor: '#22c55e',
-              fillOpacity: 0.2,
+              fillOpacity: 0.08,
               weight: 2
             }}
-          />
+          >
+            <Tooltip sticky direction="top">
+              <div className="text-gray-900 font-sans p-1">
+                <strong className="block text-xs font-bold text-emerald-800">{zone.zone_name || 'Protected Forest Zone'}</strong>
+                <span className="text-[10px] text-gray-500 font-medium block mt-0.5">Area Covered: {formatArea(calculatePolygonArea(zone.boundary_geom))}</span>
+              </div>
+            </Tooltip>
+          </GeoJSON>
         ))}
         
         {nodes.map(node => {
@@ -170,8 +186,8 @@ export default function LiveMap() {
                 center={[node.latitude, node.longitude]}
                 radius={node.monitoring_radius_meters}
                 pathOptions={{
-                  color: isThreatActive ? '#ef4444' : '#10b981',
-                  fillColor: isThreatActive ? '#ef4444' : '#10b981',
+                  color: isThreatActive ? '#ef4444' : '#06b6d4',
+                  fillColor: isThreatActive ? '#ef4444' : '#06b6d4',
                   fillOpacity: isThreatActive ? 0.4 : 0.15,
                   weight: 2,
                   className: isThreatActive ? 'blink-circle' : ''

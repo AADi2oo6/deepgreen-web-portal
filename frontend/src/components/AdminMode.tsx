@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents, FeatureGroup, GeoJSON, LayersControl } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents, FeatureGroup, GeoJSON, LayersControl, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { v4 as uuidv4 } from 'uuid';
+import { calculatePolygonArea, formatArea } from '../utils/geoUtils';
 import { EditControl } from 'react-leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import { MousePointer, PlusCircle, PenTool, Trash2 } from 'lucide-react';
@@ -185,13 +186,13 @@ export default function AdminMode() {
   // Custom icon for a normal monitoring node
   const customIcon = L.divIcon({
     className: 'custom-node-icon',
-    html: `<div style="background-color: #10b981; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);"></div>`,
+    html: `<div style="background-color: #06b6d4; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);"></div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
   });
 
   return (
-    <div className="relative w-full h-full bg-gray-950 text-slate-100">
+    <div className={`relative w-full h-full bg-gray-950 text-slate-100 ${adminMode === 'node' ? 'mode-node-active' : ''}`}>
       {/* Map Container */}
       <MapContainer 
         center={[18.4647, 73.8744]} 
@@ -223,20 +224,24 @@ export default function AdminMode() {
         <MapClickHandler onMapClick={handleMapClick} active={adminMode === 'node'} />
         
         {nodes.map(node => (
-          <div key={node.id}>
+          <div key={`${node.id}-${adminMode}`}>
             <Circle
+              key={`${node.id}-circle-${adminMode}`}
               center={[node.latitude, node.longitude]}
               radius={node.monitoring_radius_meters}
+              interactive={adminMode === 'inspect'}
               pathOptions={{
-                color: '#10b981',
-                fillColor: '#10b981',
+                color: '#06b6d4',
+                fillColor: '#06b6d4',
                 fillOpacity: 0.15,
                 weight: 2,
               }}
             />
             <Marker 
+              key={`${node.id}-marker-${adminMode}`}
               position={[node.latitude, node.longitude]}
               icon={customIcon}
+              interactive={adminMode === 'inspect'}
             >
               <Popup className="text-gray-900 font-sans">
                 <div className="p-2 min-w-[160px]">
@@ -276,15 +281,22 @@ export default function AdminMode() {
         {/* Render existing database forest zones dynamically */}
         {forestZones.map(zone => (
           <GeoJSON
-            key={zone.id}
+            key={`${zone.id}-${adminMode}`}
             data={zone.boundary_geom}
+            interactive={adminMode === 'inspect'}
             style={{
               color: '#22c55e',
               fillColor: '#22c55e',
-              fillOpacity: 0.2,
+              fillOpacity: 0.08,
               weight: 2
             }}
           >
+            <Tooltip sticky direction="top">
+              <div className="text-gray-900 font-sans p-1">
+                <strong className="block text-xs font-bold text-emerald-800">{zone.zone_name || 'Protected Forest Zone'}</strong>
+                <span className="text-[10px] text-gray-500 font-medium block mt-0.5">Area Covered: {formatArea(calculatePolygonArea(zone.boundary_geom))}</span>
+              </div>
+            </Tooltip>
             <Popup className="text-gray-900 font-sans">
               <div className="p-2 min-w-[160px]">
                 <strong className="block text-sm font-semibold text-gray-900 mb-1">{zone.zone_name || 'Protected Forest Zone'}</strong>
@@ -321,14 +333,14 @@ export default function AdminMode() {
                   shapeOptions: {
                     color: '#22c55e',
                     fillColor: '#22c55e',
-                    fillOpacity: 0.2
+                    fillOpacity: 0.08
                   }
                 },
                 rectangle: {
                   shapeOptions: {
                     color: '#22c55e',
                     fillColor: '#22c55e',
-                    fillOpacity: 0.2
+                    fillOpacity: 0.08
                   }
                 }
               }}

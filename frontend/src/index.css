@@ -11,3 +11,11 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+/* Custom Map Pin cursor for Node Deployment mode */
+.mode-node-active .leaflet-container,
+.mode-node-active .leaflet-grab,
+.mode-node-active .leaflet-interactive {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='%2306b6d4' stroke='white' stroke-width='2'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'></path><circle cx='12' cy='10' r='3' fill='white'></circle></svg>") 16 32, crosshair !important;
+}
+
