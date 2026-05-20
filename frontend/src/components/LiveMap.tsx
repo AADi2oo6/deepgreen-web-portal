@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, Popup, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
+import forestBoundary from '../assets/forestBoundary.json';
+
 
 interface NodeData {
   id: string;
@@ -21,6 +23,7 @@ export default function LiveMap() {
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [activeThreatNodes, setActiveThreatNodes] = useState<Set<string>>(new Set());
   const [activeAlert, setActiveAlert] = useState<AlertData | null>(null);
+  const [forestZones, setForestZones] = useState<any[]>([]);
 
   useEffect(() => {
     // Fetch initial nodes
@@ -28,6 +31,12 @@ export default function LiveMap() {
       .then(res => res.json())
       .then(data => setNodes(data))
       .catch(err => console.error("Error fetching nodes:", err));
+
+    // Fetch dynamic forest zones from database
+    fetch('http://localhost:8000/api/forest-zones')
+      .then(res => res.json())
+      .then(data => setForestZones(data))
+      .catch(err => console.error("Error fetching forest zones:", err));
 
     // Connect WebSocket for real-time telemetry alerts
     const ws = new WebSocket('ws://localhost:8000/ws');
@@ -112,6 +121,29 @@ export default function LiveMap() {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
+        
+        <GeoJSON
+          data={forestBoundary as any}
+          style={{
+            color: '#22c55e',
+            fillColor: '#22c55e',
+            fillOpacity: 0.2
+          }}
+        />
+
+        {/* Render dynamic forest zones from database */}
+        {forestZones.map(zone => (
+          <GeoJSON
+            key={zone.id}
+            data={zone.boundary_geom}
+            style={{
+              color: '#22c55e',
+              fillColor: '#22c55e',
+              fillOpacity: 0.2,
+              weight: 2
+            }}
+          />
+        ))}
         
         {nodes.map(node => {
           const isThreatActive = activeThreatNodes.has(node.id);

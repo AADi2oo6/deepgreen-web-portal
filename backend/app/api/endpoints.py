@@ -8,7 +8,9 @@ from app.api.schemas import (
     TelemetryPayload,
     AlertWorkflowUpdate,
     AlertActionPayload,
-    NodePayload
+    NodePayload,
+    ForestZoneCreate,
+    ForestZoneResponse
 )
 
 router = APIRouter()
@@ -194,3 +196,67 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket client communication error: {e}")
         manager.disconnect(websocket)
+
+@router.get("/api/forest-zones")
+async def get_forest_zones():
+    """
+    Fetch all protected forest zones from the Supabase database.
+    """
+    try:
+        res = supabase.table("forest_zones").select("*").execute()
+        return res.data
+    except Exception as e:
+        logger.error(f"Failed to fetch forest zones: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@router.post("/api/forest-zones")
+async def create_forest_zone(payload: ForestZoneCreate):
+    """
+    Create a new protected forest zone.
+    """
+    try:
+        zone_data = {
+            "zone_name": payload.zone_name,
+            "boundary_geom": payload.boundary_geom
+        }
+        res = supabase.table("forest_zones").insert(zone_data).execute()
+        if res.data:
+            return res.data[0]
+        raise HTTPException(status_code=500, detail="Failed to create forest zone")
+    except Exception as e:
+        logger.error(f"Failed to create forest zone: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@router.delete("/api/nodes/{node_id}")
+async def delete_node(node_id: UUID):
+    """
+    Delete a monitoring node and its associated alerts from the database.
+    """
+    try:
+        # First delete associated alerts to prevent foreign key constraint violations
+        supabase.table("alerts").delete().eq("node_id", str(node_id)).execute()
+        
+        # Now delete the node itself
+        res = supabase.table("nodes").delete().eq("id", str(node_id)).execute()
+        if res.data:
+            return {"status": "success", "message": f"Node {node_id} deleted successfully."}
+        raise HTTPException(status_code=404, detail="Node not found")
+    except Exception as e:
+        logger.error(f"Failed to delete node {node_id}: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@router.delete("/api/forest-zones/{zone_id}")
+async def delete_forest_zone(zone_id: UUID):
+    """
+    Delete a protected forest zone from the database.
+    """
+    try:
+        res = supabase.table("forest_zones").delete().eq("id", str(zone_id)).execute()
+        if res.data:
+            return {"status": "success", "message": f"Forest zone {zone_id} deleted successfully."}
+        raise HTTPException(status_code=404, detail="Forest zone not found")
+    except Exception as e:
+        logger.error(f"Failed to delete forest zone {zone_id}: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+

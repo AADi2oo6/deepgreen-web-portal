@@ -1,20 +1,27 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents, FeatureGroup, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
 import { v4 as uuidv4 } from 'uuid';
+import { EditControl } from 'react-leaflet-draw';
+import 'leaflet-draw/dist/leaflet.draw.css';
+import { MousePointer, PlusCircle, PenTool, Trash2 } from 'lucide-react';
+
 
 interface NodeData {
   id: string;
+  name?: string;
   latitude: number;
   longitude: number;
   monitoring_radius_meters: number;
 }
 
 // Component to handle map clicks
-function MapClickHandler({ onMapClick }: { onMapClick: (latlng: L.LatLng) => void }) {
+function MapClickHandler({ onMapClick, active }: { onMapClick: (latlng: L.LatLng) => void; active: boolean }) {
   useMapEvents({
     click(e) {
-      onMapClick(e.latlng);
+      if (active) {
+        onMapClick(e.latlng);
+      }
     },
   });
   return null;
@@ -32,6 +39,93 @@ export default function AdminMode() {
   const [latStr, setLatStr] = useState('');
   const [lngStr, setLngStr] = useState('');
 
+  const [adminMode, setAdminMode] = useState<'inspect' | 'node' | 'area'>('inspect');
+  const [drawnGeometry, setDrawnGeometry] = useState<any>(null);
+  const [forestZones, setForestZones] = useState<any[]>([]);
+
+  const handleModeChange = (mode: 'inspect' | 'node' | 'area') => {
+    setAdminMode(mode);
+    setDrawnGeometry(null); // Clear unsaved drawing on mode change
+  };
+
+  const handleDrawCreated = (e: any) => {
+    const { layerType, layer } = e;
+    if (layerType === 'polygon' || layerType === 'rectangle') {
+      const geojson = layer.toGeoJSON();
+      console.log("Extracted GeoJSON coordinates:", geojson.geometry.coordinates);
+      setDrawnGeometry(geojson.geometry);
+    }
+  };
+
+  const handleSaveBoundary = async () => {
+    if (!drawnGeometry) return;
+    const zoneName = prompt("Enter a name for this forest zone:", "Protected Forest Zone");
+    if (!zoneName) return;
+
+    try {
+      const response = await fetch('http://localhost:8000/api/forest-zones', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          zone_name: zoneName,
+          boundary_geom: drawnGeometry
+        })
+      });
+      if (response.ok) {
+        alert("Forest zone saved successfully!");
+        setDrawnGeometry(null);
+        fetchForestZones();
+      } else {
+        const err = await response.json();
+        alert(`Failed to save: ${err.detail || 'Unknown error'}`);
+      }
+
+    } catch (err) {
+      console.error("Error saving forest zone:", err);
+      alert("Error saving forest zone.");
+    }
+  };
+
+  const handleDeleteNode = async (nodeId: string) => {
+    if (!confirm("Are you sure you want to delete this monitoring node and all its associated alerts?")) return;
+    try {
+      const response = await fetch(`http://localhost:8000/api/nodes/${nodeId}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        alert("Node deleted successfully.");
+        fetchNodes();
+      } else {
+        const err = await response.json();
+        alert(`Failed to delete node: ${err.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error("Error deleting node:", err);
+      alert("Error deleting node.");
+    }
+  };
+
+  const handleDeleteZone = async (zoneId: string) => {
+    if (!confirm("Are you sure you want to delete this protected forest zone?")) return;
+    try {
+      const response = await fetch(`http://localhost:8000/api/forest-zones/${zoneId}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        alert("Forest zone deleted successfully.");
+        fetchForestZones();
+      } else {
+        const err = await response.json();
+        alert(`Failed to delete forest zone: ${err.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error("Error deleting forest zone:", err);
+      alert("Error deleting forest zone.");
+    }
+  };
+
   const fetchNodes = () => {
     fetch('http://localhost:8000/api/nodes')
       .then(res => res.json())
@@ -39,9 +133,19 @@ export default function AdminMode() {
       .catch(err => console.error("Error fetching nodes:", err));
   };
 
+  const fetchForestZones = () => {
+    fetch('http://localhost:8000/api/forest-zones')
+      .then(res => res.json())
+      .then(data => setForestZones(data))
+      .catch(err => console.error("Error fetching forest zones:", err));
+  };
+
   useEffect(() => {
     fetchNodes();
+    fetchForestZones();
   }, []);
+
+
 
   const handleMapClick = (latlng: L.LatLng) => {
     setClickedLatLng(latlng);
@@ -100,7 +204,7 @@ export default function AdminMode() {
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
         
-        <MapClickHandler onMapClick={handleMapClick} />
+        <MapClickHandler onMapClick={handleMapClick} active={adminMode === 'node'} />
         
         {nodes.map(node => (
           <div key={node.id}>
@@ -119,15 +223,29 @@ export default function AdminMode() {
               icon={customIcon}
             >
               <Popup className="text-gray-900 font-sans">
-                <strong>Node ID:</strong> {node.id.substring(0, 8)}...<br/>
-                <strong>Radius:</strong> {node.monitoring_radius_meters}m
+                <div className="p-2 min-w-[160px]">
+                  <strong className="block text-sm font-semibold text-gray-900 mb-1">{node.name || `Node ${node.id.substring(0, 4)}`}</strong>
+                  <div className="text-[11px] text-gray-500 space-y-0.5 mb-3 font-mono leading-relaxed border-t border-gray-100 pt-1 mt-1">
+                    <div>ID: {node.id.substring(0, 8)}...</div>
+                    <div>Lat: {node.latitude.toFixed(5)}</div>
+                    <div>Lng: {node.longitude.toFixed(5)}</div>
+                    <div>Radius: {node.monitoring_radius_meters}m</div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteNode(node.id)}
+                    className="w-full py-1.5 px-3 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Node
+                  </button>
+                </div>
               </Popup>
             </Marker>
           </div>
         ))}
         
         {/* Render a temporary marker where the user clicked */}
-        {showModal && latStr && lngStr && !isNaN(parseFloat(latStr)) && !isNaN(parseFloat(lngStr)) && (
+        {showModal && latStr && lngStr && !isNaN(parseFloat(latStr)) && !isNaN(isNaN(parseFloat(lngStr)) ? NaN : parseFloat(lngStr)) && (
           <Marker 
             position={[parseFloat(latStr), parseFloat(lngStr)]}
             icon={L.divIcon({
@@ -138,16 +256,143 @@ export default function AdminMode() {
             })}
           />
         )}
+
+        {/* Render existing database forest zones dynamically */}
+        {forestZones.map(zone => (
+          <GeoJSON
+            key={zone.id}
+            data={zone.boundary_geom}
+            style={{
+              color: '#22c55e',
+              fillColor: '#22c55e',
+              fillOpacity: 0.2,
+              weight: 2
+            }}
+          >
+            <Popup className="text-gray-900 font-sans">
+              <div className="p-2 min-w-[160px]">
+                <strong className="block text-sm font-semibold text-gray-900 mb-1">{zone.zone_name || 'Protected Forest Zone'}</strong>
+                <span className="text-[11px] text-gray-500 font-mono block mb-3 border-t border-gray-100 pt-1 mt-1">ID: {zone.id.substring(0, 8)}...</span>
+                <button
+                  onClick={() => handleDeleteZone(zone.id)}
+                  className="w-full py-1.5 px-3 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Zone
+                </button>
+              </div>
+            </Popup>
+          </GeoJSON>
+        ))}
+
+        {/* FeatureGroup and EditControl for drawing zones */}
+        {adminMode === 'area' && (
+          <FeatureGroup>
+            <EditControl
+              position="topright"
+              onCreated={handleDrawCreated}
+              draw={{
+                polyline: false,
+                circle: false,
+                circlemarker: false,
+                marker: false,
+                polygon: {
+                  allowIntersection: false,
+                  drawError: {
+                    color: '#e1573f',
+                    message: '<strong>Error:</strong> Boundary cannot intersect!'
+                  },
+                  shapeOptions: {
+                    color: '#22c55e',
+                    fillColor: '#22c55e',
+                    fillOpacity: 0.2
+                  }
+                },
+                rectangle: {
+                  shapeOptions: {
+                    color: '#22c55e',
+                    fillColor: '#22c55e',
+                    fillOpacity: 0.2
+                  }
+                }
+              }}
+            />
+          </FeatureGroup>
+        )}
       </MapContainer>
 
-      {/* Deployment Mode Overlay */}
-      <div className="absolute top-4 left-4 z-[1000] pointer-events-none">
-        <div className="backdrop-blur-xl bg-gray-900/80 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] rounded-lg p-3">
-          <h2 className="text-emerald-400 font-bold uppercase tracking-wider text-sm flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-            Deployment Mode
-          </h2>
-          <p className="text-xs text-gray-400 mt-1">Click anywhere on the map to deploy a new monitoring node.</p>
+      {/* Floating Save Forest Boundary button */}
+      {drawnGeometry && adminMode === 'area' && (
+        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-[1000] pointer-events-auto">
+          <button
+            onClick={handleSaveBoundary}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all hover:scale-105 border border-emerald-400/30 backdrop-blur-md cursor-pointer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 animate-pulse">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+            </svg>
+            Save Forest Boundary to Database
+          </button>
+        </div>
+      )}
+
+      {/* Admin Control Panel Toolbar */}
+      <div className="absolute top-4 left-4 z-[1000] pointer-events-auto">
+        <div className="backdrop-blur-xl bg-gray-900/90 border border-gray-700/50 shadow-2xl rounded-2xl p-4 w-72 flex flex-col gap-3 transition-all duration-300">
+          <div className="flex items-center gap-2 border-b border-gray-800 pb-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+            <h2 className="text-white font-bold uppercase tracking-wider text-xs">Admin Control Panel</h2>
+          </div>
+          
+          <div className="flex flex-col gap-2">
+            {/* Inspect / Delete Mode */}
+            <button
+              onClick={() => handleModeChange('inspect')}
+              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
+                adminMode === 'inspect'
+                  ? 'bg-emerald-600/20 border-emerald-500/50 text-white shadow-[0_0_12px_rgba(16,185,129,0.15)] font-semibold'
+                  : 'bg-gray-800/20 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/80'
+              }`}
+            >
+              <MousePointer className={`w-4 h-4 ${adminMode === 'inspect' ? 'text-emerald-400' : 'text-gray-400'}`} />
+              <div className="flex-1">
+                <div className="text-xs tracking-wider uppercase">Inspect & Manage</div>
+                <div className="text-[10px] text-gray-500 leading-snug mt-0.5 font-normal">Click on nodes or zones to view details and delete.</div>
+              </div>
+            </button>
+
+            {/* Deploy Node Mode */}
+            <button
+              onClick={() => handleModeChange('node')}
+              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
+                adminMode === 'node'
+                  ? 'bg-emerald-600/20 border-emerald-500/50 text-white shadow-[0_0_12px_rgba(16,185,129,0.15)] font-semibold'
+                  : 'bg-gray-800/20 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/80'
+              }`}
+            >
+              <PlusCircle className={`w-4 h-4 ${adminMode === 'node' ? 'text-emerald-400' : 'text-gray-400'}`} />
+              <div className="flex-1">
+                <div className="text-xs tracking-wider uppercase">Deploy Node</div>
+                <div className="text-[10px] text-gray-500 leading-snug mt-0.5 font-normal">Click on the map to define coordinates and deploy a node.</div>
+              </div>
+            </button>
+
+            {/* Mark Forest Zone Mode */}
+            <button
+              onClick={() => handleModeChange('area')}
+              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
+                adminMode === 'area'
+                  ? 'bg-emerald-600/20 border-emerald-500/50 text-white shadow-[0_0_12px_rgba(16,185,129,0.15)] font-semibold'
+                  : 'bg-gray-800/20 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/80'
+              }`}
+            >
+              <PenTool className={`w-4 h-4 ${adminMode === 'area' ? 'text-emerald-400' : 'text-gray-400'}`} />
+              <div className="flex-1">
+                <div className="text-xs tracking-wider uppercase">Mark Forest Area</div>
+                <div className="text-[10px] text-gray-500 leading-snug mt-0.5 font-normal">Draw custom spatial polygon boundaries on the map.</div>
+              </div>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -20,3 +20,15 @@ class NodePayload(BaseModel):
     latitude: float
     longitude: float
     monitoring_radius_meters: float
+
+from typing import Dict, Any
+
+class ForestZoneCreate(BaseModel):
+    zone_name: str = Field(..., min_length=1, description="Name of the protected forest zone")
+    boundary_geom: Dict[str, Any] = Field(..., description="GeoJSON geometry object")
+
+class ForestZoneResponse(BaseModel):
+    id: UUID
+    zone_name: str
+    boundary_geom: Dict[str, Any]
+
