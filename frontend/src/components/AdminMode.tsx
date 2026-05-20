@@ -1,12 +1,23 @@
-import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents, FeatureGroup, GeoJSON, LayersControl, Tooltip } from 'react-leaflet';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { MapContainer, TileLayer, Marker, Circle, Popup, useMapEvents, GeoJSON, LayersControl, Tooltip, useMap } from 'react-leaflet';
+import { useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
 import { v4 as uuidv4 } from 'uuid';
 import { calculatePolygonArea, formatArea } from '../utils/geoUtils';
-import { EditControl } from 'react-leaflet-draw';
+import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
-import { MousePointer, PlusCircle, PenTool, Trash2 } from 'lucide-react';
-
+import { 
+  Trash2, 
+  Users, 
+  UserPlus, 
+  Lock, 
+  User as UserIcon, 
+  Phone, 
+  MapPin, 
+  Loader2,
+  X,
+  RefreshCw
+} from 'lucide-react';
 
 interface NodeData {
   id: string;
@@ -28,35 +39,123 @@ function MapClickHandler({ onMapClick, active }: { onMapClick: (latlng: L.LatLng
   return null;
 }
 
+// Custom DrawControl using native Leaflet.Draw to avoid CJS default export bugs in Vite
+function DrawControl({ onCreated }: { onCreated: (e: any) => void }) {
+  const map = useMap();
+  const onCreatedRef = useRef(onCreated);
+
+  useEffect(() => {
+    onCreatedRef.current = onCreated;
+  }, [onCreated]);
+
+  useEffect(() => {
+    const activeL = (window as any).L || L;
+    if (!activeL.Control || !(activeL.Control as any).Draw) {
+      console.error("Leaflet.Draw is not registered on global L or window.L!");
+      return;
+    }
+
+    const drawnItems = new activeL.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    const drawControl = new (activeL.Control as any).Draw({
+      position: 'topleft',
+      edit: {
+        featureGroup: drawnItems,
+        remove: true
+      },
+      draw: {
+        circle: false,
+        marker: false,
+        circlemarker: false,
+        polyline: false,
+        polygon: {
+          shapeOptions: {
+            color: '#22c55e',
+            fillColor: '#22c55e',
+            fillOpacity: 0.08
+          }
+        },
+        rectangle: {
+          shapeOptions: {
+            color: '#22c55e',
+            fillColor: '#22c55e',
+            fillOpacity: 0.08
+          }
+        }
+      }
+    });
+
+    map.addControl(drawControl);
+
+    const handleCreated = (e: any) => {
+      const layer = e.layer;
+      drawnItems.addLayer(layer);
+      if (onCreatedRef.current) {
+        onCreatedRef.current(e);
+      }
+    };
+
+    map.on('draw:created', handleCreated);
+
+    return () => {
+      map.removeControl(drawControl);
+      map.off('draw:created', handleCreated);
+      map.removeLayer(drawnItems);
+    };
+  }, [map]);
+
+  return null;
+}
+
 export default function AdminMode() {
+  const [searchParams] = useSearchParams();
+  const currentTool = searchParams.get('tool') || 'inspect';
+
+  // Deriving active admin mode from search params tool
+  const adminMode = (currentTool === 'node' || currentTool === 'area') ? currentTool : 'inspect';
+
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [clickedLatLng, setClickedLatLng] = useState<L.LatLng | null>(null);
   
-  // Form state
+  // Form state for deploying node
   const [nodeId, setNodeId] = useState('');
   const [nodeName, setNodeName] = useState('');
   const [radius, setRadius] = useState('500');
   const [latStr, setLatStr] = useState('');
   const [lngStr, setLngStr] = useState('');
 
-  const [adminMode, setAdminMode] = useState<'inspect' | 'node' | 'area'>('inspect');
   const [drawnGeometry, setDrawnGeometry] = useState<any>(null);
   const [forestZones, setForestZones] = useState<any[]>([]);
 
-  const handleModeChange = (mode: 'inspect' | 'node' | 'area') => {
-    setAdminMode(mode);
-    setDrawnGeometry(null); // Clear unsaved drawing on mode change
-  };
+  // Accounts management states
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [accLoading, setAccLoading] = useState(false);
+  const [accError, setAccError] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  
+  // Create User Form state
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newFullName, setNewFullName] = useState('');
+  const [newContact, setNewContact] = useState('');
+  const [newRank, setNewRank] = useState('Forest Ranger');
+  const [newAddress, setNewAddress] = useState('');
+  const [newGovId, setNewGovId] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState('');
 
-  const handleDrawCreated = (e: any) => {
+
+
+  const handleDrawCreated = useCallback((e: any) => {
     const { layerType, layer } = e;
     if (layerType === 'polygon' || layerType === 'rectangle') {
       const geojson = layer.toGeoJSON();
       console.log("Extracted GeoJSON coordinates:", geojson.geometry.coordinates);
       setDrawnGeometry(geojson.geometry);
     }
-  };
+  }, []);
 
   const handleSaveBoundary = async () => {
     if (!drawnGeometry) return;
@@ -80,9 +179,8 @@ export default function AdminMode() {
         fetchForestZones();
       } else {
         const err = await response.json();
-        alert(`Failed to save: ${err.detail || 'Unknown error'}`);
+        alert(`Failed to save forest zone: ${err.detail || 'Unknown error'}`);
       }
-
     } catch (err) {
       console.error("Error saving forest zone:", err);
       alert("Error saving forest zone.");
@@ -90,7 +188,7 @@ export default function AdminMode() {
   };
 
   const handleDeleteNode = async (nodeId: string) => {
-    if (!confirm("Are you sure you want to delete this monitoring node and all its associated alerts?")) return;
+    if (!confirm("Are you sure you want to delete this monitoring node?")) return;
     try {
       const response = await fetch(`http://localhost:8000/api/nodes/${nodeId}`, {
         method: 'DELETE'
@@ -147,49 +245,162 @@ export default function AdminMode() {
       });
   };
 
+  const fetchAccounts = async () => {
+    setAccLoading(true);
+    setAccError('');
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('http://localhost:8000/api/admin/users', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to fetch accounts list');
+      }
+      setAccounts(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setAccError(err.message || 'Error communicating with server');
+    } finally {
+      setAccLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchNodes();
     fetchForestZones();
-  }, []);
+    setDrawnGeometry(null); // Clear unsaved drawing on tool change
+    if (currentTool === 'accounts') {
+      fetchAccounts();
+    }
+  }, [currentTool]);
 
-
-
-  const handleMapClick = (latlng: L.LatLng) => {
+  const handleMapClick = useCallback((latlng: L.LatLng) => {
     setClickedLatLng(latlng);
     setLatStr(latlng.lat.toFixed(5));
     setLngStr(latlng.lng.toFixed(5));
     setNodeId(uuidv4()); // Auto-generate a UUID for convenience
     setNodeName(`Node ${Math.floor(Math.random() * 1000)}`);
     setShowModal(true);
-  };
+  }, []);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nodeId || !radius || !latStr || !lngStr) return;
+    if (!clickedLatLng || !nodeId.trim() || !radius) return;
 
     try {
-      await fetch('http://localhost:8000/api/nodes', {
+      const response = await fetch('http://localhost:8000/api/nodes', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          id: nodeId,
-          name: nodeName,
+          id: nodeId.trim(),
+          name: nodeName.trim() || `Node ${nodeId.substring(0,8)}`,
           latitude: parseFloat(latStr),
           longitude: parseFloat(lngStr),
-          monitoring_radius_meters: parseFloat(radius)
+          monitoring_radius_meters: parseInt(radius)
         })
       });
-      
-      setShowModal(false);
-      fetchNodes(); // Refresh nodes
+
+      if (response.ok) {
+        alert("Node deployed successfully!");
+        setShowModal(false);
+        fetchNodes();
+      } else {
+        const err = await response.json();
+        alert(`Failed to deploy node: ${err.detail || 'Unknown error'}`);
+      }
     } catch (err) {
-      console.error("Failed to create node:", err);
+      console.error("Error deploying node:", err);
+      alert("Error deploying node.");
     }
   };
 
-  // Custom icon for a normal monitoring node
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateError('');
+    
+    if (!newUsername.trim() || !newPassword) {
+      setCreateError('Username and Password are required.');
+      return;
+    }
+
+    setCreateLoading(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('http://localhost:8000/api/admin/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          username: newUsername.trim(),
+          password: newPassword,
+          full_name: newFullName.trim(),
+          contact_number: newContact.trim(),
+          rank: newRank,
+          address: newAddress.trim(),
+          government_id: newGovId.trim()
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to create official account');
+      }
+
+      // Reset form
+      setNewUsername('');
+      setNewPassword('');
+      setNewFullName('');
+      setNewContact('');
+      setNewRank('Forest Ranger');
+      setNewAddress('');
+      setNewGovId('');
+      setCreateError('');
+      setShowCreateModal(false);
+      alert("Official account created successfully!");
+      fetchAccounts();
+    } catch (err: any) {
+      setCreateError(err.message || 'Error communicating with server');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: string, username: string) => {
+    const userStr = localStorage.getItem('user');
+    const currentUser = userStr ? JSON.parse(userStr) : null;
+    if (currentUser && currentUser.id === id) {
+      alert("You cannot delete your own profile.");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete the official account: '${username}'?`)) return;
+
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`http://localhost:8000/api/admin/users/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to delete account');
+      }
+      alert("Account deleted successfully.");
+      fetchAccounts();
+    } catch (err: any) {
+      alert(`Error deleting user: ${err.message}`);
+    }
+  };
+
+  // Custom Icon for standard node
   const customIcon = L.divIcon({
     className: 'custom-node-icon',
     html: `<div style="background-color: #06b6d4; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);"></div>`,
@@ -197,14 +408,297 @@ export default function AdminMode() {
     iconAnchor: [12, 12],
   });
 
+  // Render User Accounts Management Page
+  if (currentTool === 'accounts') {
+    return (
+      <div className="w-full h-full bg-gray-950 p-8 overflow-y-auto text-slate-100 relative font-sans">
+        {/* Gradients */}
+        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-teal-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+
+        <div className="relative z-10 max-w-6xl mx-auto space-y-6">
+          
+          {/* Header Panel */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-gray-900/60 backdrop-blur-xl border border-slate-800 p-6 rounded-3xl shadow-xl">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-emerald-500/15 rounded-2xl border border-emerald-500/30">
+                <Users className="w-6 h-6 text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">Official Accounts</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Manage credentials and authorization access for DeepGreen officials</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={fetchAccounts}
+                className="p-2.5 bg-gray-800 hover:bg-gray-700 text-slate-300 hover:text-white border border-slate-700 rounded-xl cursor-pointer transition-colors"
+                title="Refresh List"
+              >
+                <RefreshCw className={`w-4 h-4 ${accLoading ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-lg border border-emerald-500/30 cursor-pointer active:scale-[0.98] transition-all"
+              >
+                <UserPlus className="w-4 h-4" />
+                Register Official
+              </button>
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {accError && (
+            <div className="p-4 bg-red-950/50 border border-red-500/30 text-red-300 text-xs font-semibold rounded-2xl">
+              {accError}
+            </div>
+          )}
+
+          {/* Accounts List Table Card */}
+          <div className="bg-gray-900/40 border border-slate-800/80 rounded-3xl overflow-hidden shadow-2xl backdrop-blur-md">
+            {accLoading ? (
+              <div className="py-20 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Syncing official registry...</span>
+              </div>
+            ) : accounts.length === 0 ? (
+              <div className="py-20 text-center text-slate-500 text-xs font-semibold uppercase tracking-wider">
+                No official accounts registered in database.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-900/80 border-b border-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                      <th className="px-6 py-4">Full Name</th>
+                      <th className="px-6 py-4">Username</th>
+                      <th className="px-6 py-4">Rank / Position</th>
+                      <th className="px-6 py-4">Gov ID</th>
+                      <th className="px-6 py-4">Contact</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850">
+                    {accounts.map(acc => (
+                      <tr 
+                        key={acc.id}
+                        className="hover:bg-slate-900/30 transition-colors text-xs text-slate-300"
+                      >
+                        <td className="px-6 py-4 font-bold text-white whitespace-nowrap">{acc.full_name || 'N/A'}</td>
+                        <td className="px-6 py-4 font-mono text-slate-400">{acc.username}</td>
+                        <td className="px-6 py-4 font-medium">{acc.rank || 'N/A'}</td>
+                        <td className="px-6 py-4 font-mono text-slate-400 font-semibold">{acc.government_id || 'N/A'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{acc.contact_number || 'N/A'}</td>
+                        <td className="px-6 py-4 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => handleDeleteUser(acc.id, acc.username)}
+                            className="p-1.5 bg-red-950/20 hover:bg-red-900/30 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-lg cursor-pointer transition-all"
+                            title="Delete Account"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Create Official Account Modal */}
+        {showCreateModal && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+            <div className="relative w-full max-w-lg bg-gray-900 border border-slate-800 rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+              
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setCreateError('');
+                }}
+                className="absolute top-4 right-4 p-1.5 bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg border border-slate-750 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-800/80">
+                <div className="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                  <UserPlus className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-md font-bold text-white">Register Official</h3>
+                  <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Create a secure government official profile</p>
+                </div>
+              </div>
+
+              {createError && (
+                <div className="mb-4 p-3 bg-red-950/50 border border-red-500/30 text-red-300 text-xs font-semibold rounded-xl">
+                  {createError}
+                </div>
+              )}
+
+              <form onSubmit={handleCreateUser} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Username */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Username</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-650">
+                        <UserIcon className="w-3.5 h-3.5" />
+                      </span>
+                      <input
+                        type="text"
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        placeholder="ranger.smith"
+                        required
+                        className="w-full pl-8 pr-3 py-2 bg-gray-950 border border-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 text-slate-100 rounded-xl text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Password */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Password</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-650">
+                        <Lock className="w-3.5 h-3.5" />
+                      </span>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        required
+                        className="w-full pl-8 pr-3 py-2 bg-gray-950 border border-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 text-slate-100 rounded-xl text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Full Name */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Full Name</label>
+                    <input
+                      type="text"
+                      value={newFullName}
+                      onChange={(e) => setNewFullName(e.target.value)}
+                      placeholder="Officer John Smith"
+                      className="w-full px-3 py-2 bg-gray-950 border border-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 text-slate-100 rounded-xl text-xs"
+                    />
+                  </div>
+
+                  {/* Gov ID */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Government ID</label>
+                    <input
+                      type="text"
+                      value={newGovId}
+                      onChange={(e) => setNewGovId(e.target.value)}
+                      placeholder="GOV-505-RANGER"
+                      className="w-full px-3 py-2 bg-gray-950 border border-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 text-slate-100 rounded-xl text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Rank Selection */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rank Position</label>
+                    <select
+                      value={newRank}
+                      onChange={(e) => setNewRank(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-950 border border-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 text-slate-100 rounded-xl text-xs cursor-pointer"
+                    >
+                      <option value="Forest Ranger">Forest Ranger</option>
+                      <option value="Senior Ranger">Senior Ranger</option>
+                      <option value="Deputy Warden">Deputy Warden</option>
+                      <option value="Chief Warden">Chief Warden (Admin Access)</option>
+                    </select>
+                  </div>
+
+                  {/* Contact */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Contact Number</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-650">
+                        <Phone className="w-3.5 h-3.5" />
+                      </span>
+                      <input
+                        type="text"
+                        value={newContact}
+                        onChange={(e) => setNewContact(e.target.value)}
+                        placeholder="+91-XXXXXXXXXX"
+                        className="w-full pl-8 pr-3 py-2 bg-gray-950 border border-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 text-slate-100 rounded-xl text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Station Address</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-start pt-2 pl-3 pointer-events-none text-slate-650">
+                      <MapPin className="w-3.5 h-3.5" />
+                    </span>
+                    <textarea
+                      value={newAddress}
+                      onChange={(e) => setNewAddress(e.target.value)}
+                      placeholder="Beat Office, Pune Sector 5, Maharashtra"
+                      rows={2}
+                      className="w-full pl-8 pr-3 py-2 bg-gray-950 border border-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 text-slate-100 rounded-xl text-xs resize-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Submit button */}
+                <div className="flex gap-3 pt-4 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setCreateError('');
+                    }}
+                    className="flex-1 py-2 px-4 bg-slate-850 hover:bg-slate-800 text-slate-300 font-semibold rounded-xl text-xs cursor-pointer border border-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createLoading}
+                    className="flex-1 py-2 px-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold rounded-xl text-xs cursor-pointer flex items-center justify-center gap-1.5 shadow-lg border border-emerald-500/30"
+                  >
+                    {createLoading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Registering...</span>
+                      </>
+                    ) : (
+                      <span>Complete Registration</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Render Map Administration Pane
   return (
     <div className={`relative w-full h-full bg-gray-950 text-slate-100 ${adminMode === 'node' ? 'mode-node-active' : ''}`}>
       {/* Map Container */}
       <MapContainer 
+        key={`${adminMode}`} // Forces map reload when mode changes to update EditControl settings
         center={[18.4647, 73.8744]} 
         zoom={13} 
         style={{ height: '100%', width: '100%' }}
-        className="z-0"
+        className={`z-0 ${adminMode === 'node' ? 'mode-node-active' : ''}`}
       >
         <LayersControl position="topright">
           <LayersControl.BaseLayer checked name="Dark Mode">
@@ -226,65 +720,11 @@ export default function AdminMode() {
             />
           </LayersControl.BaseLayer>
         </LayersControl>
-        
-        <MapClickHandler onMapClick={handleMapClick} active={adminMode === 'node'} />
-        
-        {nodes.map(node => (
-          <div key={`${node.id}-${adminMode}`}>
-            <Circle
-              key={`${node.id}-circle-${adminMode}`}
-              center={[node.latitude, node.longitude]}
-              radius={node.monitoring_radius_meters}
-              interactive={adminMode === 'inspect'}
-              pathOptions={{
-                color: '#06b6d4',
-                fillColor: '#06b6d4',
-                fillOpacity: 0.15,
-                weight: 2,
-              }}
-            />
-            <Marker 
-              key={`${node.id}-marker-${adminMode}`}
-              position={[node.latitude, node.longitude]}
-              icon={customIcon}
-              interactive={adminMode === 'inspect'}
-            >
-              <Popup className="text-gray-900 font-sans">
-                <div className="p-2 min-w-[160px]">
-                  <strong className="block text-sm font-semibold text-gray-900 mb-1">{node.name || `Node ${node.id.substring(0, 4)}`}</strong>
-                  <div className="text-[11px] text-gray-500 space-y-0.5 mb-3 font-mono leading-relaxed border-t border-gray-100 pt-1 mt-1">
-                    <div>ID: {node.id.substring(0, 8)}...</div>
-                    <div>Lat: {node.latitude.toFixed(5)}</div>
-                    <div>Lng: {node.longitude.toFixed(5)}</div>
-                    <div>Radius: {node.monitoring_radius_meters}m</div>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteNode(node.id)}
-                    className="w-full py-1.5 px-3 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete Node
-                  </button>
-                </div>
-              </Popup>
-            </Marker>
-          </div>
-        ))}
-        
-        {/* Render a temporary marker where the user clicked */}
-        {showModal && latStr && lngStr && !isNaN(parseFloat(latStr)) && !isNaN(isNaN(parseFloat(lngStr)) ? NaN : parseFloat(lngStr)) && (
-          <Marker 
-            position={[parseFloat(latStr), parseFloat(lngStr)]}
-            icon={L.divIcon({
-              className: 'custom-new-node-icon',
-              html: `<div style="background-color: #3b82f6; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);"></div>`,
-              iconSize: [24, 24],
-              iconAnchor: [12, 12],
-            })}
-          />
-        )}
 
-        {/* Render existing database forest zones dynamically */}
+        {/* Map Click Listener for Deploy Node */}
+        <MapClickHandler onMapClick={handleMapClick} active={adminMode === 'node'} />
+
+        {/* Render dynamic forest zones from database */}
         {forestZones.map(zone => (
           <GeoJSON
             key={`${zone.id}-${adminMode}`}
@@ -297,61 +737,66 @@ export default function AdminMode() {
               weight: 2
             }}
           >
+            <Popup className="text-gray-900 font-sans">
+              <strong className="block text-xs font-bold text-emerald-800">{zone.zone_name || 'Protected Forest Zone'}</strong>
+              <span className="text-[10px] text-gray-500 font-medium block mt-1">Area: {formatArea(calculatePolygonArea(zone.boundary_geom))}</span>
+              {adminMode === 'inspect' && (
+                <button
+                  onClick={() => handleDeleteZone(zone.id)}
+                  className="mt-2 text-[10px] font-bold text-red-650 hover:text-red-500 border border-red-500/20 hover:border-red-500/40 rounded px-1.5 py-0.5 w-full cursor-pointer flex items-center justify-center gap-1 bg-red-50/50"
+                >
+                  <Trash2 className="w-3 h-3" /> Delete Area
+                </button>
+              )}
+            </Popup>
             <Tooltip sticky direction="top">
               <div className="text-gray-900 font-sans p-1">
                 <strong className="block text-xs font-bold text-emerald-800">{zone.zone_name || 'Protected Forest Zone'}</strong>
                 <span className="text-[10px] text-gray-500 font-medium block mt-0.5">Area Covered: {formatArea(calculatePolygonArea(zone.boundary_geom))}</span>
               </div>
             </Tooltip>
-            <Popup className="text-gray-900 font-sans">
-              <div className="p-2 min-w-[160px]">
-                <strong className="block text-sm font-semibold text-gray-900 mb-1">{zone.zone_name || 'Protected Forest Zone'}</strong>
-                <span className="text-[11px] text-gray-500 font-mono block mb-3 border-t border-gray-100 pt-1 mt-1">ID: {zone.id.substring(0, 8)}...</span>
-                <button
-                  onClick={() => handleDeleteZone(zone.id)}
-                  className="w-full py-1.5 px-3 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Zone
-                </button>
-              </div>
-            </Popup>
           </GeoJSON>
         ))}
 
-        {/* FeatureGroup and EditControl for drawing zones */}
-        {adminMode === 'area' && (
-          <FeatureGroup>
-            <EditControl
-              position="topright"
-              onCreated={handleDrawCreated}
-              draw={{
-                polyline: false,
-                circle: false,
-                circlemarker: false,
-                marker: false,
-                polygon: {
-                  allowIntersection: false,
-                  drawError: {
-                    color: '#e1573f',
-                    message: '<strong>Error:</strong> Boundary cannot intersect!'
-                  },
-                  shapeOptions: {
-                    color: '#22c55e',
-                    fillColor: '#22c55e',
-                    fillOpacity: 0.08
-                  }
-                },
-                rectangle: {
-                  shapeOptions: {
-                    color: '#22c55e',
-                    fillColor: '#22c55e',
-                    fillOpacity: 0.08
-                  }
-                }
+        {/* Render existing nodes */}
+        {nodes.map(node => (
+          <div key={`${node.id}-${adminMode}`}>
+            <Circle 
+              center={[node.latitude, node.longitude]}
+              radius={node.monitoring_radius_meters}
+              pathOptions={{
+                color: '#06b6d4',
+                fillColor: '#06b6d4',
+                fillOpacity: 0.15,
+                weight: 2,
+                interactive: adminMode === 'inspect'
               }}
             />
-          </FeatureGroup>
+            <Marker 
+              position={[node.latitude, node.longitude]}
+              icon={customIcon}
+              interactive={adminMode === 'inspect'}
+            >
+              <Popup className="text-gray-900 font-sans">
+                <strong className="block text-xs font-bold text-cyan-800">{node.name || `Node ${node.id.substring(0,8)}`}</strong>
+                <span className="text-[10px] text-gray-500 block">Radius: {node.monitoring_radius_meters}m</span>
+                <span className="text-[10px] text-gray-500 block">Coords: {node.latitude.toFixed(5)}, {node.longitude.toFixed(5)}</span>
+                {adminMode === 'inspect' && (
+                  <button
+                    onClick={() => handleDeleteNode(node.id)}
+                    className="mt-2 text-[10px] font-bold text-red-650 hover:text-red-500 border border-red-500/20 hover:border-red-500/40 rounded px-1.5 py-0.5 w-full cursor-pointer flex items-center justify-center gap-1 bg-red-50/50"
+                  >
+                    <Trash2 className="w-3 h-3" /> Remove Node
+                  </button>
+                )}
+              </Popup>
+            </Marker>
+          </div>
+        ))}
+
+        {/* Native Leaflet Draw Controls */}
+        {adminMode === 'area' && (
+          <DrawControl onCreated={handleDrawCreated} />
         )}
       </MapContainer>
 
@@ -370,65 +815,7 @@ export default function AdminMode() {
         </div>
       )}
 
-      {/* Admin Control Panel Toolbar */}
-      <div className="absolute top-4 left-4 z-[1000] pointer-events-auto">
-        <div className="backdrop-blur-xl bg-gray-900/90 border border-gray-700/50 shadow-2xl rounded-2xl p-4 w-72 flex flex-col gap-3 transition-all duration-300">
-          <div className="flex items-center gap-2 border-b border-gray-800 pb-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
-            <h2 className="text-white font-bold uppercase tracking-wider text-xs">Admin Control Panel</h2>
-          </div>
-          
-          <div className="flex flex-col gap-2">
-            {/* Inspect / Delete Mode */}
-            <button
-              onClick={() => handleModeChange('inspect')}
-              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
-                adminMode === 'inspect'
-                  ? 'bg-emerald-600/20 border-emerald-500/50 text-white shadow-[0_0_12px_rgba(16,185,129,0.15)] font-semibold'
-                  : 'bg-gray-800/20 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/80'
-              }`}
-            >
-              <MousePointer className={`w-4 h-4 ${adminMode === 'inspect' ? 'text-emerald-400' : 'text-gray-400'}`} />
-              <div className="flex-1">
-                <div className="text-xs tracking-wider uppercase">Inspect & Manage</div>
-                <div className="text-[10px] text-gray-500 leading-snug mt-0.5 font-normal">Click on nodes or zones to view details and delete.</div>
-              </div>
-            </button>
 
-            {/* Deploy Node Mode */}
-            <button
-              onClick={() => handleModeChange('node')}
-              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
-                adminMode === 'node'
-                  ? 'bg-emerald-600/20 border-emerald-500/50 text-white shadow-[0_0_12px_rgba(16,185,129,0.15)] font-semibold'
-                  : 'bg-gray-800/20 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/80'
-              }`}
-            >
-              <PlusCircle className={`w-4 h-4 ${adminMode === 'node' ? 'text-emerald-400' : 'text-gray-400'}`} />
-              <div className="flex-1">
-                <div className="text-xs tracking-wider uppercase">Deploy Node</div>
-                <div className="text-[10px] text-gray-500 leading-snug mt-0.5 font-normal">Click on the map to define coordinates and deploy a node.</div>
-              </div>
-            </button>
-
-            {/* Mark Forest Zone Mode */}
-            <button
-              onClick={() => handleModeChange('area')}
-              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
-                adminMode === 'area'
-                  ? 'bg-emerald-600/20 border-emerald-500/50 text-white shadow-[0_0_12px_rgba(16,185,129,0.15)] font-semibold'
-                  : 'bg-gray-800/20 border-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/80'
-              }`}
-            >
-              <PenTool className={`w-4 h-4 ${adminMode === 'area' ? 'text-emerald-400' : 'text-gray-400'}`} />
-              <div className="flex-1">
-                <div className="text-xs tracking-wider uppercase">Mark Forest Area</div>
-                <div className="text-[10px] text-gray-500 leading-snug mt-0.5 font-normal">Draw custom spatial polygon boundaries on the map.</div>
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Modal Form */}
       {showModal && clickedLatLng && (
@@ -439,75 +826,73 @@ export default function AdminMode() {
             <form onSubmit={handleFormSubmit} className="space-y-4">
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm text-gray-400 uppercase tracking-wider mb-1">Latitude</label>
+                  <label className="block text-xs text-gray-450 uppercase tracking-wider mb-1">Latitude</label>
                   <input 
-                    type="number"
-                    step="any"
+                    type="text" 
                     value={latStr}
                     onChange={(e) => setLatStr(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white font-mono text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                    className="w-full bg-gray-850 border border-gray-700 rounded p-2 text-white font-mono text-sm focus:outline-none"
                     required
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="block text-sm text-gray-400 uppercase tracking-wider mb-1">Longitude</label>
+                  <label className="block text-xs text-gray-450 uppercase tracking-wider mb-1">Longitude</label>
                   <input 
-                    type="number"
-                    step="any"
+                    type="text" 
                     value={lngStr}
                     onChange={(e) => setLngStr(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white font-mono text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                    className="w-full bg-gray-850 border border-gray-700 rounded p-2 text-white font-mono text-sm focus:outline-none"
                     required
                   />
                 </div>
               </div>
               
               <div>
-                <label className="block text-sm text-gray-400 uppercase tracking-wider mb-1">Node Name</label>
-                <input 
-                  type="text" 
-                  value={nodeName}
-                  onChange={(e) => setNodeName(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white font-mono text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm text-gray-400 uppercase tracking-wider mb-1">Node ID (UUID)</label>
+                <label className="block text-xs text-gray-450 uppercase tracking-wider mb-1">Node ID (UUID)</label>
                 <input 
                   type="text" 
                   value={nodeId}
                   onChange={(e) => setNodeId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white font-mono text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                  className="w-full bg-gray-850 border border-gray-700 rounded p-2 text-white font-mono text-sm focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-450 uppercase tracking-wider mb-1">Node Identifier Name</label>
+                <input 
+                  type="text" 
+                  value={nodeName}
+                  onChange={(e) => setNodeName(e.target.value)}
+                  className="w-full bg-gray-850 border border-gray-700 rounded p-2 text-white text-sm focus:outline-none"
                   required
                 />
               </div>
               
               <div>
-                <label className="block text-sm text-gray-400 uppercase tracking-wider mb-1">Monitoring Radius (Meters)</label>
+                <label className="block text-xs text-gray-450 uppercase tracking-wider mb-1">Monitoring Radius (Meters)</label>
                 <input 
                   type="number" 
                   value={radius}
                   onChange={(e) => setRadius(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                  className="w-full bg-gray-850 border border-gray-700 rounded p-2 text-white text-sm focus:outline-none"
                   min="10"
                   max="5000"
                   required
                 />
               </div>
               
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-4 border-t border-slate-800/80">
                 <button 
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-2 px-4 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded transition-colors focus:outline-none"
+                  className="flex-1 py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs cursor-pointer border border-slate-700"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 py-2 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded shadow-lg shadow-emerald-900/50 transition-colors focus:outline-none"
+                  className="flex-1 py-2 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs cursor-pointer shadow-lg border border-emerald-500/30"
                 >
                   Deploy
                 </button>

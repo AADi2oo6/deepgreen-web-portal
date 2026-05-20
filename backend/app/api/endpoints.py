@@ -259,4 +259,72 @@ async def delete_forest_zone(zone_id: UUID):
         logger.error(f"Failed to delete forest zone {zone_id}: {e}")
         raise HTTPException(status_code=500, detail="Database connection error")
 
+@router.get("/api/search")
+async def get_search_combined():
+    """
+    Fetch all nodes and forest_zones to construct a combined searchable indexing payload.
+    """
+    try:
+        # Fetch nodes
+        nodes_res = supabase.table("nodes").select("id, name, latitude, longitude, monitoring_radius_meters").execute()
+        # Fetch forest zones
+        zones_res = supabase.table("forest_zones").select("id, zone_name, boundary_geom").execute()
+        
+        combined = []
+        # Add nodes
+        for node in (nodes_res.data or []):
+            combined.append({
+                "type": "node",
+                "id": node["id"],
+                "name": node["name"] or f"Node {node['id'][:8]}",
+                "coordinates": [node["latitude"], node["longitude"]],
+                "details": {
+                    "monitoring_radius_meters": node["monitoring_radius_meters"]
+                }
+            })
+            
+        # Add forest zones
+        for zone in (zones_res.data or []):
+            center = None
+            geom = zone.get("boundary_geom")
+            if geom and geom.get("type") == "Polygon" and geom.get("coordinates"):
+                try:
+                    ring = geom["coordinates"][0]
+                    sum_lng = sum(pt[0] for pt in ring)
+                    sum_lat = sum(pt[1] for pt in ring)
+                    count = len(ring)
+                    if count > 0:
+                        center = [sum_lat / count, sum_lng / count]
+                except Exception:
+                    pass
+            
+            combined.append({
+                "type": "zone",
+                "id": zone["id"],
+                "name": zone["zone_name"] or "Protected Forest Area",
+                "coordinates": center,
+                "details": {
+                    "boundary_geom": geom
+                }
+            })
+            
+        return combined
+    except Exception as e:
+        logger.error(f"Search index fetch failure: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@router.get("/api/audit-logs")
+async def get_audit_logs():
+    """
+    Fetch all audit action logs from the database.
+    """
+    try:
+        res = supabase.table("audit_logs").select("*").order("created_at", desc=True).limit(100).execute()
+        return res.data
+    except Exception as e:
+        logger.error(f"Failed to fetch audit logs: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+
+
 
