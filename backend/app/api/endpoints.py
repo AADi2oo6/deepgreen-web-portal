@@ -1,7 +1,8 @@
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends
-from uuid import UUID
+import os
+from uuid import UUID, uuid4
 from datetime import datetime, timezone
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, Form, File, UploadFile, Response
 from app.core.security import get_current_user
 from app.core.logging import logger
 from app.db.supabase import supabase
@@ -413,6 +414,142 @@ async def get_logs(current_user: dict = Depends(get_current_user)):
         return flat_logs
     except Exception as e:
         logger.error(f"Failed to fetch activity logs: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+
+@router.get("/api/cases")
+async def get_cases(response: Response, current_user: dict = Depends(get_current_user)):
+    """
+    Fetch all alerts where workflow_status is NOT 'Pending Review' or 'Action Pending'.
+    Includes node_name, threat_type, and initiated_by.
+    """
+    try:
+        response.headers["Cache-Control"] = "public, max-age=30"
+        res = supabase.table("alerts").select("*, nodes(name)")\
+            .neq("workflow_status", "Pending Review")\
+            .neq("workflow_status", "Action Pending")\
+            .order("created_at", desc=True)\
+            .execute()
+            
+        cases = []
+        for alert in (res.data or []):
+            alert_id = alert.get("id")
+            
+            # Query audit_logs table for this alert_id to find the FIRST action taken by a human
+            audit_res = supabase.table("audit_logs")\
+                .select("performed_by_username")\
+                .eq("alert_id", alert_id)\
+                .not_.is_("performed_by_username", "null")\
+                .not_.like("performed_by_username", "node_%")\
+                .order("timestamp", desc=False)\
+                .limit(1)\
+                .execute()
+                
+            if not audit_res.data or len(audit_res.data) == 0:
+                # Exclude cases with only automated initiation
+                continue
+                
+            initiated_by = audit_res.data[0].get("performed_by_username")
+            
+            node_name = alert.get("nodes", {}).get("name") if alert.get("nodes") else None
+            cases.append({
+                "id": alert.get("id"),
+                "node_id": alert.get("node_id"),
+                "threat_type": alert.get("threat_type"),
+                "confidence_score": alert.get("confidence_score"),
+                "workflow_status": alert.get("workflow_status"),
+                "created_at": alert.get("created_at"),
+                "node_name": node_name,
+                "initiated_by": initiated_by
+            })
+        return cases
+    except Exception as e:
+        logger.error(f"Failed to fetch cases: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+
+@router.get("/api/cases/{alert_id}/updates")
+async def get_case_updates(alert_id: UUID, current_user: dict = Depends(get_current_user)):
+    """
+    Fetch all case updates for a specific alert, ordered by created_at ascending.
+    """
+    try:
+        # First verify alert exists
+        alert_res = supabase.table("alerts").select("id").eq("id", str(alert_id)).execute()
+        if not alert_res.data:
+            raise HTTPException(status_code=404, detail="Alert not found")
+
+        res = supabase.table("case_updates").select("*").eq("alert_id", str(alert_id)).order("created_at", desc=False).execute()
+        return res.data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch case updates for alert {alert_id}: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+
+@router.post("/api/cases/{alert_id}/updates")
+async def create_case_update(
+    alert_id: UUID,
+    report_text: str = Form(...),
+    close_case: bool = Form(False),
+    image: UploadFile = File(None),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Post a case update with optional image upload and optional case closing.
+    """
+    try:
+        # First verify alert exists
+        alert_res = supabase.table("alerts").select("id").eq("id", str(alert_id)).execute()
+        if not alert_res.data:
+            raise HTTPException(status_code=404, detail="Alert not found")
+
+        image_path = None
+        if image and image.filename:
+            # Generate UUID filename
+            ext = os.path.splitext(image.filename)[1]
+            unique_filename = f"{uuid4()}{ext}"
+            file_path = os.path.join("uploads", unique_filename)
+            
+            # Save the file locally
+            with open(file_path, "wb") as f:
+                content = await image.read()
+                f.write(content)
+            
+            image_path = f"/uploads/{unique_filename}"
+
+        # Insert case update
+        update_data = {
+            "alert_id": str(alert_id),
+            "officer_username": current_user.get("full_name") or current_user.get("sub"),
+            "report_text": report_text,
+            "image_path": image_path,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        res = supabase.table("case_updates").insert(update_data).execute()
+        if not res.data:
+            raise HTTPException(status_code=500, detail="Failed to save case update")
+        
+        inserted_update = res.data[0]
+
+        if close_case:
+            # Update workflow status of the alert
+            alert_update_res = supabase.table("alerts").update({"workflow_status": "Closed - Resolved"}).eq("id", str(alert_id)).execute()
+            if alert_update_res.data:
+                # Broadcast the status update via WebSockets
+                update_event = {
+                    "type": "status_update",
+                    "alert_id": str(alert_id),
+                    "workflow_status": "Closed - Resolved"
+                }
+                await manager.broadcast(update_event)
+
+        return inserted_update
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create case update for alert {alert_id}: {e}")
         raise HTTPException(status_code=500, detail="Database connection error")
 
 
