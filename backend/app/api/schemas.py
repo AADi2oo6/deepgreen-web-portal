@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
+from typing import Optional
 
 class TelemetryPayload(BaseModel):
     alert_id: UUID = Field(..., description="Unique identifier for the specific threat alert")
@@ -12,7 +13,8 @@ class AlertWorkflowUpdate(BaseModel):
 
 class AlertActionPayload(BaseModel):
     action_type: str = Field(..., min_length=1, description="E.g., Escalated, False Alarm")
-    user_name: str = Field(..., min_length=1, description="E.g., Officer Smith")
+    user_name: Optional[str] = Field(default=None, description="E.g., Officer Smith")
+    notes: Optional[str] = Field(default=None, description="E.g., Field observations or remarks")
 
 class NodePayload(BaseModel):
     id: UUID

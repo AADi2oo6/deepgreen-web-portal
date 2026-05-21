@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Circle, Popup, GeoJSON, LayersControl, Tooltip } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, Popup, GeoJSON, LayersControl, Tooltip, useMap } from 'react-leaflet';
+import { useSearchParams } from 'react-router-dom';
 import MapSearch from './MapSearch';
 import L from 'leaflet';
 import forestBoundary from '../assets/forestBoundary.json';
@@ -18,6 +19,25 @@ interface AlertData {
   node_id: string;
   threat_type: string;
   confidence_score: number;
+}
+
+function MapLocator({ nodes }: { nodes: NodeData[] }) {
+  const map = useMap();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const locateNodeId = searchParams.get('locate');
+    if (locateNodeId && nodes.length > 0) {
+      const targetNode = nodes.find(n => n.id === locateNodeId);
+      if (targetNode) {
+        map.flyTo([targetNode.latitude, targetNode.longitude], 15, {
+          duration: 1.5
+        });
+      }
+    }
+  }, [searchParams, nodes, map]);
+
+  return null;
 }
 
 export default function LiveMap() {
@@ -82,27 +102,32 @@ export default function LiveMap() {
     iconAnchor: [12, 12],
   });
 
-  const handleAction = async (actionType: string) => {
-    if (!activeAlert || !activeAlert.id) return;
+  const handleAction = async (actionType: string, targetAlert?: AlertData) => {
+    const alertToProcess = targetAlert || activeAlert;
+    if (!alertToProcess || !alertToProcess.id) return;
+    const token = localStorage.getItem('token');
     try {
-      await fetch(`http://localhost:8000/api/alerts/${activeAlert.id}/action`, {
+      await fetch(`http://localhost:8000/api/alerts/${alertToProcess.id}/action`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          action_type: actionType,
-          user_name: 'Admin Ranger'
+          action_type: actionType
         })
       });
       
       // Clear alert and map pin
       setActiveThreatNodes(prev => {
         const newSet = new Set(prev);
-        newSet.delete(activeAlert.node_id);
+        newSet.delete(alertToProcess.node_id);
         return newSet;
       });
-      setActiveAlert(null);
+      
+      if (activeAlert && activeAlert.id === alertToProcess.id) {
+        setActiveAlert(null);
+      }
     } catch (err) {
       console.error("Failed to perform action", err);
     }
@@ -147,6 +172,7 @@ export default function LiveMap() {
         </LayersControl>
         
         <MapSearch />
+        <MapLocator nodes={nodes} />
         
         <GeoJSON
           data={forestBoundary as any}
@@ -207,8 +233,38 @@ export default function LiveMap() {
                 icon={isThreatActive ? alertIcon : customIcon}
               >
                 <Popup className="text-gray-900 font-sans">
-                  <strong>Node ID:</strong> {node.id.substring(0, 8)}...<br/>
-                  <strong>Radius:</strong> {node.monitoring_radius_meters}m
+                  <div className="space-y-2">
+                    <div>
+                      <strong>Node ID:</strong> {node.id.substring(0, 8)}...<br/>
+                      <strong>Radius:</strong> {node.monitoring_radius_meters}m
+                    </div>
+                    {isThreatActive && (() => {
+                      const alertForNode = activeAlert?.node_id === node.id 
+                        ? activeAlert 
+                        : alerts.find(a => a.node_id === node.id);
+                      if (!alertForNode) return null;
+                      return (
+                        <div className="pt-2 border-t border-gray-250 space-y-1.5">
+                          <div className="text-xs font-bold text-red-650 uppercase">Active Threat: {alertForNode.threat_type}</div>
+                          <div className="text-[10px] text-gray-500">Confidence: {(alertForNode.confidence_score * 100).toFixed(1)}%</div>
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              onClick={() => handleAction('Escalated', alertForNode)}
+                              className="px-2 py-1 bg-red-650 hover:bg-red-550 text-white rounded text-[10px] font-semibold transition-colors cursor-pointer"
+                            >
+                              Escalate
+                            </button>
+                            <button
+                              onClick={() => handleAction('False Alarm', alertForNode)}
+                              className="px-2 py-1 bg-gray-650 hover:bg-gray-550 text-gray-200 border border-gray-500 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+                            >
+                              False Alarm
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </Popup>
               </Marker>
             </div>

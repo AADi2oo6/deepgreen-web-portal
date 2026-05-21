@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import logoImg from '../assets/logo.png';
 import { 
-  ShieldAlert, 
   Map, 
   Settings, 
   Radio, 
@@ -73,18 +73,8 @@ export default function Sidebar() {
       <aside className="w-72 h-screen bg-gray-900 border-r border-slate-800 flex flex-col justify-between text-slate-300 font-sans z-[1000] relative">
         {/* Top Header Section */}
         <div>
-          <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-800/80">
-            <div className="p-2 bg-emerald-500/15 rounded-xl border border-emerald-500/30">
-              <ShieldAlert className="w-6 h-6 text-emerald-400" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-white leading-none">
-                DeepGreen
-              </h1>
-              <p className="text-[10px] text-emerald-400 uppercase tracking-widest font-semibold mt-1">
-                Command Center
-              </p>
-            </div>
+          <div className="flex items-center justify-center px-4 py-5 border-b border-slate-800/80">
+            <img src={logoImg} alt="DeepGreen Command Center" className="h-12 w-auto object-contain" />
           </div>
 
           {/* Mode Switcher Toggle for Admin */}
@@ -182,7 +172,7 @@ export default function Sidebar() {
                   <button
                     onClick={() => navigateToDashboardTab('map')}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      currentTab === 'map'
+                      currentPath === '/dashboard' && currentTab === 'map'
                         ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                         : 'hover:bg-slate-800/60 text-slate-400 hover:text-slate-250 border border-transparent'
                     }`}
@@ -191,9 +181,9 @@ export default function Sidebar() {
                     Live Map View
                   </button>
                   <button
-                    onClick={() => navigateToDashboardTab('activities')}
+                    onClick={() => navigate('/activities')}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      currentTab === 'activities'
+                      currentPath === '/activities'
                         ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                         : 'hover:bg-slate-800/60 text-slate-400 hover:text-slate-250 border border-transparent'
                     }`}
@@ -204,7 +194,7 @@ export default function Sidebar() {
                   <button
                     onClick={() => navigateToDashboardTab('logs')}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      currentTab === 'logs'
+                      currentPath === '/dashboard' && currentTab === 'logs'
                         ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                         : 'hover:bg-slate-800/60 text-slate-400 hover:text-slate-250 border border-transparent'
                     }`}
@@ -223,7 +213,7 @@ export default function Sidebar() {
                 <button
                   onClick={() => navigateToDashboardTab('map')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    currentTab === 'map'
+                    currentPath === '/dashboard' && currentTab === 'map'
                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                       : 'hover:bg-slate-800/60 text-slate-400 hover:text-slate-250 border border-transparent'
                   }`}
@@ -232,9 +222,9 @@ export default function Sidebar() {
                   Live Map
                 </button>
                 <button
-                  onClick={() => navigateToDashboardTab('activities')}
+                  onClick={() => navigate('/activities')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    currentTab === 'activities'
+                    currentPath === '/activities'
                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                       : 'hover:bg-slate-800/60 text-slate-400 hover:text-slate-250 border border-transparent'
                   }`}
@@ -245,7 +235,7 @@ export default function Sidebar() {
                 <button
                   onClick={() => navigateToDashboardTab('logs')}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    currentTab === 'logs'
+                    currentPath === '/dashboard' && currentTab === 'logs'
                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                       : 'hover:bg-slate-800/60 text-slate-400 hover:text-slate-250 border border-transparent'
                   }`}

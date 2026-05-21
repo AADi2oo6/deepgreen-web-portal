@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Lock, User, Eye, EyeOff, Loader2 } from 'lucide-react';
+import logoImg from '../assets/logo.png';
+import { Lock, User, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -73,12 +74,7 @@ export default function Login() {
         
         {/* Portal Header */}
         <div className="flex flex-col items-center mb-8 text-center">
-          <div className="p-3 bg-emerald-500/15 rounded-2xl border border-emerald-500/30 shadow-lg shadow-emerald-500/5 mb-4 animate-pulse">
-            <ShieldAlert className="w-8 h-8 text-emerald-400" />
-          </div>
-          <h2 className="text-2xl font-bold tracking-tight text-white">
-            DeepGreen Portal
-          </h2>
+          <img src={logoImg} alt="DeepGreen Command Center" className="h-16 w-auto object-contain mb-4" />
           <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-semibold">
             Government Official Access
           </p>

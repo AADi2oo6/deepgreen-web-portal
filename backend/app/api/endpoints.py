@@ -1,6 +1,8 @@
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from uuid import UUID
+from datetime import datetime, timezone
+from app.core.security import get_current_user
 from app.core.logging import logger
 from app.db.supabase import supabase
 from app.services.websocket import manager
@@ -92,7 +94,7 @@ async def update_alert_status(alert_id: UUID, payload: AlertWorkflowUpdate):
         raise HTTPException(status_code=500, detail="Database connection error")
 
 @router.post("/api/alerts/{alert_id}/action")
-async def process_alert_action(alert_id: UUID, payload: AlertActionPayload):
+async def process_alert_action(alert_id: UUID, payload: AlertActionPayload, current_user: dict = Depends(get_current_user)):
     """
     Process an action on an alert (e.g., Escalate, Mark as False Alarm) and log the audit trail.
     """
@@ -105,9 +107,11 @@ async def process_alert_action(alert_id: UUID, payload: AlertActionPayload):
         updated_alert = res.data[0]
         
         audit_data = {
-            "action": f"Alert {payload.action_type}",
-            "performed_by": payload.user_name,
-            "details": {"alert_id": str(alert_id), "action": payload.action_type}
+            "alert_id": str(alert_id),
+            "action_taken": payload.action_type,
+            "performed_by_username": current_user.get("full_name") or current_user.get("sub"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "notes": payload.notes if payload.notes else f"Alert action processed: {payload.action_type}"
         }
         supabase.table("audit_logs").insert(audit_data).execute()
         
@@ -154,9 +158,10 @@ async def receive_telemetry(payload: TelemetryPayload):
         
         # Insert audit log
         audit_data = {
-            "action": f"Acoustic anomaly classified: {payload.threat_type} detected",
-            "performed_by": f"node_{payload.node_id}",
-            "details": alert_data
+            "alert_id": str(alert_id) if alert_id else None,
+            "action_taken": "Auto-Logged",
+            "performed_by_username": f"node_{payload.node_id}",
+            "notes": f"Acoustic anomaly classified: {payload.threat_type} detected"
         }
         supabase.table("audit_logs").insert(audit_data).execute()
     except Exception as e:
@@ -338,10 +343,76 @@ async def get_audit_logs():
     Fetch all audit action logs from the database.
     """
     try:
-        res = supabase.table("audit_logs").select("*").order("created_at", desc=True).limit(100).execute()
+        res = supabase.table("audit_logs").select("*").order("timestamp", desc=True).limit(100).execute()
         return res.data
     except Exception as e:
         logger.error(f"Failed to fetch audit logs: {e}")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+@router.get("/api/logs")
+async def get_logs(current_user: dict = Depends(get_current_user)):
+    """
+    Fetch all alerts joined with nodes and audit logs.
+    If an alert has no corresponding audit log, return action_taken: 'Action Pending'
+    and performed_by_username: null.
+    The response is sorted by timestamp descending.
+    """
+    try:
+        # Query alerts table, join with nodes and audit_logs
+        res = supabase.table("alerts").select("*, nodes(name, latitude, longitude), audit_logs(*)").execute()
+        
+        flat_logs = []
+        for alert in (res.data or []):
+            alert_id = alert.get("id")
+            threat_type = alert.get("threat_type")
+            confidence_score = alert.get("confidence_score")
+            node_id = alert.get("node_id")
+            
+            # Nodes relation
+            node = alert.get("nodes") or {}
+            node_name = node.get("name")
+            latitude = node.get("latitude")
+            longitude = node.get("longitude")
+            
+            # Audit logs relation
+            audit_logs = alert.get("audit_logs") or []
+            
+            if audit_logs:
+                # Find the latest audit log based on timestamp string comparison
+                latest_log = sorted(audit_logs, key=lambda x: x.get("timestamp") or "", reverse=True)[0]
+                log_id = latest_log.get("id") or alert_id
+                action_taken = latest_log.get("action_taken")
+                performed_by_username = latest_log.get("performed_by_username")
+                timestamp = latest_log.get("timestamp") or alert.get("created_at")
+                notes = latest_log.get("notes")
+            else:
+                log_id = alert_id
+                action_taken = "Action Pending"
+                performed_by_username = None
+                timestamp = alert.get("created_at")
+                notes = None
+                
+            log_entry = {
+                "id": log_id,
+                "alert_id": alert_id,
+                "action_taken": action_taken,
+                "performed_by_username": performed_by_username,
+                "timestamp": timestamp,
+                "notes": notes,
+                "threat_type": threat_type,
+                "confidence_score": confidence_score,
+                "node_id": node_id,
+                "node_name": node_name,
+                "latitude": latitude,
+                "longitude": longitude
+            }
+            flat_logs.append(log_entry)
+            
+        # Sort logs by timestamp descending
+        flat_logs.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
+        return flat_logs
+    except Exception as e:
+        logger.error(f"Failed to fetch activity logs: {e}")
         raise HTTPException(status_code=500, detail="Database connection error")
 
 

@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './components/Login';
 import LiveMap from './components/LiveMap';
 import AdminMode from './components/AdminMode';
+import ViewActivities from './components/ViewActivities';
 import DashboardLayout from './layouts/DashboardLayout';
 import './App.css';
 
@@ -16,6 +17,7 @@ function App() {
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<LiveMap />} />
           <Route path="/admin" element={<AdminMode />} />
+          <Route path="/activities" element={<ViewActivities />} />
         </Route>
         
         {/* Catch-all Fallback Redirection */}
